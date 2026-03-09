@@ -1,0 +1,26 @@
+{
+  "name": "gravity",
+  "version": "1.0.0",
+  "description": "Self-hosted web app for Raspberry Pi",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "migrate": "knex migrate:latest",
+    "migrate:rollback": "knex migrate:rollback",
+    "seed": "knex seed:run"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["self-hosted", "raspberry-pi"],
+  "license": "MIT",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.6.0",
+    "express": "^4.21.0",
+    "express-session": "^1.18.0",
+    "knex": "^3.1.0",
+    "morgan": "^1.10.0"
+  }
+}
