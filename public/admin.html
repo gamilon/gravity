@@ -67,10 +67,12 @@
     const userPasswordInput = document.getElementById('user-password');
     const userAdminInput = document.getElementById('user-admin');
     const userError = document.getElementById('user-error');
+    let csrfToken = '';
 
     function escapeHtml(s) {
+      if (s == null) return '';
       const div = document.createElement('div');
-      div.textContent = s;
+      div.textContent = String(s);
       return div.innerHTML;
     }
 
@@ -92,8 +94,11 @@
             const groupsHtml = groups.length
               ? groups.map((g) => '<span class="badge ' + (g === 'admin' ? 'badge-admin' : '') + '">' + escapeHtml(g) + '</span>').join(' ')
               : '<span class="muted">none</span>';
-            return '<tr><td>' + u.id + '</td><td>' + escapeHtml(u.username) + '</td><td>' + groupsHtml +
-              '</td><td><button class="revoke" data-id="' + u.id + '">Delete</button></td></tr>';
+            const status = u.disabled ? ' <span class="muted">(disabled)</span>' : '';
+            return '<tr><td>' + u.id + '</td><td>' + escapeHtml(u.username) + status + '</td><td>' + groupsHtml +
+              '</td><td><button class="edit" data-id="' + u.id + '" data-groups="' + escapeHtml(groups.join(',')) +
+              '" data-disabled="' + (u.disabled ? '1' : '0') + '">Edit</button> ' +
+              '<button class="revoke" data-id="' + u.id + '">Delete</button></td></tr>';
           }).join('');
           tbody.querySelectorAll('button.revoke').forEach((btn) => {
             btn.addEventListener('click', () => {
@@ -103,6 +108,7 @@
               fetch('/api/admin/users/' + id, {
                 method: 'DELETE',
                 credentials: 'include',
+                headers: { 'X-CSRF-Token': csrfToken },
               })
                 .then((r) => r.json().then((d) => ({ status: r.status, body: d })))
                 .then(({ status, body }) => {
@@ -114,6 +120,35 @@
                 })
                 .catch(() => {
                   userError.textContent = ' Failed to delete user.';
+                });
+            });
+          });
+          tbody.querySelectorAll('button.edit').forEach((btn) => {
+            btn.addEventListener('click', () => {
+              const id = parseInt(btn.dataset.id, 10);
+              if (!Number.isInteger(id)) return;
+              const existingGroups = (btn.dataset.groups || '').split(',').filter((g) => g.trim() !== '');
+              const groupsInput = prompt('Groups (comma-separated), e.g. admin,viewer', existingGroups.join(', '));
+              if (groupsInput === null) return;
+              const groups = groupsInput.split(',').map((g) => g.trim()).filter((g) => g.length > 0);
+              const disable = confirm('Disable this user? OK = disabled, Cancel = active');
+              userError.textContent = '';
+              fetch('/api/admin/users/' + id + '/groups', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                body: JSON.stringify({ groups, disabled: disable }),
+              })
+                .then((r) => r.json().then((d) => ({ status: r.status, body: d })))
+                .then(({ status, body }) => {
+                  if (status >= 400) {
+                    userError.textContent = ' ' + (body.error || 'Failed to update user');
+                    return;
+                  }
+                  loadUsers();
+                })
+                .catch(() => {
+                  userError.textContent = ' Failed to update user.';
                 });
             });
           });
@@ -155,6 +190,7 @@
               fetch('/api/admin/groups/' + id, {
                 method: 'DELETE',
                 credentials: 'include',
+                headers: { 'X-CSRF-Token': csrfToken },
               })
                 .then((r) => r.json().then((d) => ({ status: r.status, body: d })))
                 .then(({ status, body }) => {
@@ -186,7 +222,7 @@
       fetch('/api/admin/groups', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
         body: JSON.stringify({ name }),
       })
         .then((r) => r.json().then((d) => ({ status: r.status, body: d })))
@@ -216,7 +252,7 @@
       fetch('/api/admin/users', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
         body: JSON.stringify({ username, password, isAdmin }),
       })
         .then((r) => r.json().then((d) => ({ status: r.status, body: d })))
@@ -235,8 +271,16 @@
         });
     });
 
-    loadUsers();
-    loadGroups();
+    fetch('/api/me', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((d) => {
+        csrfToken = (d && d.csrfToken) || '';
+        loadUsers();
+        loadGroups();
+      })
+      .catch(() => {
+        tbody.innerHTML = '<tr><td colspan="4" class="muted">Failed to load.</td></tr>';
+      });
   </script>
 </body>
 </html>

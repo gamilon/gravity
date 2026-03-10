@@ -14,14 +14,17 @@
       <a href="/status">Status</a>
       · <a href="/tokens">API tokens</a>
       · <span id="admin-link" style="display:none;">· <a href="/admin">Admin</a></span>
+      · <a href="/account">My account</a>
       · <span id="user-label">…</span>
       · <a href="#" id="logout">Log out</a>
     </p>
   </main>
   <script>
+    let csrfToken = '';
     fetch('/api/me', { credentials: 'include' })
       .then((r) => r.json())
       .then((d) => {
+        csrfToken = d.csrfToken || '';
         const userLabel = document.getElementById('user-label');
         const adminLink = document.getElementById('admin-link');
         if (d.user) {
@@ -35,7 +38,11 @@
       });
     document.getElementById('logout').addEventListener('click', (e) => {
       e.preventDefault();
-      fetch('/api/logout', { method: 'POST', credentials: 'include' }).then(() => { window.location.href = '/login'; });
+      fetch('/api/logout', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'X-CSRF-Token': csrfToken },
+      }).then(() => { window.location.href = '/login'; });
     });
   </script>
 </html>

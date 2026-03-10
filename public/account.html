@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>My account — Gravity</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .account-main { max-width: 32rem; margin: 0 auto; text-align: left; }
+    .account-main h1 { text-align: center; }
+    .account-main .nav { text-align: center; margin-bottom: 1rem; }
+    .account-main dl { margin-top: 0; }
+    .account-main dt { font-weight: 600; margin-top: 0.5rem; }
+    .account-main dd { margin: 0 0 0.25rem 0; }
+    .muted { color: #666; }
+    .error { color: #fca5a5; font-size: 0.9rem; }
+    .success { color: #6ee7b7; font-size: 0.9rem; }
+    form { margin-top: 1.5rem; }
+    input { width: 100%; padding: 0.5rem; margin-bottom: 0.5rem; background: #2d2d44; border: 1px solid #444; color: #eee; border-radius: 4px; }
+    button { padding: 0.5rem 1rem; background: #3b82f6; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #2563eb; }
+  </style>
+</head>
+<body>
+  <main class="account-main">
+    <h1>My account</h1>
+    <p class="nav"><a href="/">← Home</a></p>
+
+    <section>
+      <h2>Profile</h2>
+      <dl>
+        <dt>Username</dt>
+        <dd id="acct-username" class="muted">Loading…</dd>
+        <dt>Groups</dt>
+        <dd id="acct-groups" class="muted">Loading…</dd>
+        <dt>Status</dt>
+        <dd id="acct-status" class="muted">Loading…</dd>
+      </dl>
+    </section>
+
+    <section>
+      <h2>Change password</h2>
+      <form id="pw-form">
+        <label for="pw-current">Current password</label>
+        <input id="pw-current" type="password" autocomplete="current-password" />
+        <label for="pw-new">New password</label>
+        <input id="pw-new" type="password" autocomplete="new-password" />
+        <button type="submit">Update password</button>
+        <div id="pw-message" class="muted"></div>
+      </form>
+    </section>
+  </main>
+  <script>
+    const usernameEl = document.getElementById('acct-username');
+    const groupsEl = document.getElementById('acct-groups');
+    const statusEl = document.getElementById('acct-status');
+    const pwForm = document.getElementById('pw-form');
+    const pwCurrent = document.getElementById('pw-current');
+    const pwNew = document.getElementById('pw-new');
+    const pwMessage = document.getElementById('pw-message');
+    let csrfToken = '';
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      const div = document.createElement('div');
+      div.textContent = String(s);
+      return div.innerHTML;
+    }
+
+    function loadAccount() {
+      fetch('/api/account', { credentials: 'include' })
+        .then((r) => {
+          if (r.status === 401) { window.location.href = '/login'; return null; }
+          return r.json();
+        })
+        .then((data) => {
+          if (!data) return;
+          csrfToken = data.csrfToken || '';
+          const u = data.user;
+          usernameEl.innerHTML = escapeHtml(u.username);
+          const groups = u.groups && u.groups.length ? u.groups : ['none'];
+          groupsEl.innerHTML = groups.map(escapeHtml).join(', ');
+          statusEl.textContent = u.disabled ? 'Disabled' : 'Active';
+        })
+        .catch(() => {
+          usernameEl.textContent = 'Error loading account';
+        });
+    }
+
+    pwForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      pwMessage.textContent = '';
+      pwMessage.className = 'muted';
+      const currentPassword = pwCurrent.value;
+      const newPassword = pwNew.value;
+      if (!currentPassword || !newPassword) {
+        pwMessage.textContent = 'Both current and new password are required.';
+        pwMessage.className = 'error';
+        return;
+      }
+      fetch('/api/account/password', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+        },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      })
+        .then((r) => r.json().then((d) => ({ status: r.status, body: d })))
+        .then(({ status, body }) => {
+          if (status >= 400) {
+            pwMessage.textContent = body.error || 'Failed to update password.';
+            pwMessage.className = 'error';
+            return;
+          }
+          pwCurrent.value = '';
+          pwNew.value = '';
+          pwMessage.textContent = 'Password updated.';
+          pwMessage.className = 'success';
+        })
+        .catch(() => {
+          pwMessage.textContent = 'Failed to update password.';
+          pwMessage.className = 'error';
+        });
+    });
+
+    loadAccount();
+  </script>
+</body>
+</html>
+

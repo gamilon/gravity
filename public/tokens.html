@@ -50,6 +50,7 @@
     const nameInput = document.getElementById('name');
     const createBtn = document.getElementById('create');
     const newTokenBox = document.getElementById('new-token-box');
+    let csrfToken = '';
 
     function formatDate(d) {
       if (!d) return '—';
@@ -81,14 +82,19 @@
     }
 
     function escapeHtml(s) {
+      if (s == null) return '';
       const div = document.createElement('div');
-      div.textContent = s;
+      div.textContent = String(s);
       return div.innerHTML;
     }
 
     function revoke(id) {
       if (!confirm('Revoke this token? It will stop working immediately.')) return;
-      fetch(`/api/tokens/${id}`, { method: 'DELETE', credentials: 'include' })
+      fetch(`/api/tokens/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'X-CSRF-Token': csrfToken },
+      })
         .then((r) => { if (r.ok) loadTokens(); });
     }
 
@@ -99,7 +105,7 @@
       fetch('/api/tokens', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
         body: JSON.stringify({ name }),
       })
         .then((r) => r.json())
@@ -118,7 +124,15 @@
         .catch(() => { createBtn.disabled = false; });
     });
 
-    loadTokens();
+    fetch('/api/me', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((d) => {
+        csrfToken = (d && d.csrfToken) || '';
+        loadTokens();
+      })
+      .catch(() => {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty">Failed to load.</td></tr>';
+      });
   </script>
 </body>
 </html>

@@ -12,6 +12,7 @@ async function loadUserWithGroups(userId) {
   return {
     id: user.id,
     username: user.username,
+    disabled: !!user.disabled,
     groups: groups.map((g) => g.name),
   };
 }

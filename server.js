@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const crypto = require('crypto');
 const session = require('express-session');
 const morgan = require('morgan');
 const bcrypt = require('bcryptjs');
@@ -35,9 +36,44 @@ app.use(
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production' && process.env.TRUST_PROXY === '1',
       maxAge: 7 * 24 * 60 * 60 * 1000,
+      sameSite: 'lax',
     },
   })
 );
+
+// Security headers (CSP helps mitigate XSS impact)
+app.use((_req, res, next) => {
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; form-action 'self'; frame-ancestors 'self'"
+  );
+  next();
+});
+
+function ensureCsrfToken(req) {
+  if (!req.session.csrfToken) {
+    req.session.csrfToken = crypto.randomBytes(24).toString('hex');
+  }
+  return req.session.csrfToken;
+}
+
+function requireCsrf(req, res, next) {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+  if (req.headers.authorization?.startsWith('Bearer ') || req.headers['x-api-key']) return next();
+  const token = req.headers['x-csrf-token'];
+  if (!token || token !== req.session?.csrfToken) {
+    return res.status(403).json({ error: 'Invalid or missing CSRF token' });
+  }
+  next();
+}
+
+// CSRF token for unauthenticated (e.g. login page)
+app.get('/api/csrf-token', (req, res) => {
+  const csrfToken = ensureCsrfToken(req);
+  res.json({ csrfToken });
+});
+
+app.use(requireCsrf);
 
 // Login page (before static)
 app.get('/login', (req, res) => {
@@ -56,6 +92,10 @@ app.post('/api/login', async (req, res) => {
     log.info('Login failed (invalid credentials)');
     return res.status(401).json({ error: 'Invalid username or password' });
   }
+  if (user.disabled) {
+    log.info('Login failed (disabled user)', username);
+    return res.status(403).json({ error: 'Account is disabled' });
+  }
   req.session.userId = user.id;
   const withGroups = await loadUserWithGroups(user.id);
   log.info('Login ok', withGroups.username);
@@ -73,12 +113,51 @@ app.post('/api/logout', (req, res) => {
 
 app.get('/api/me', requireAuth, async (req, res) => {
   const user = await loadUserWithGroups(req.session.userId);
-  res.json({ user: user ? { id: user.id, username: user.username, groups: user.groups } : null });
+  const csrfToken = ensureCsrfToken(req);
+  res.json({
+    user: user ? { id: user.id, username: user.username, groups: user.groups } : null,
+    csrfToken,
+  });
 });
 
 // Admin overview (users, groups) – admin only
 app.get('/admin', requireAuth, requireAdmin, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
+// My account
+app.get('/account', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'account.html'));
+});
+app.get('/api/account', requireAuth, async (req, res) => {
+  const user = await loadUserWithGroups(req.session.userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const csrfToken = ensureCsrfToken(req);
+  res.json({
+    csrfToken,
+    user: {
+      id: user.id,
+      username: user.username,
+      groups: user.groups,
+      disabled: !!user.disabled,
+    },
+  });
+});
+app.post('/api/account/password', requireAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Current and new password are required' });
+  }
+  const userRow = await db('users').where({ id: req.session.userId }).first();
+  if (!userRow) return res.status(404).json({ error: 'User not found' });
+  const ok = await bcrypt.compare(String(currentPassword), userRow.password_hash);
+  if (!ok) {
+    return res.status(401).json({ error: 'Current password is incorrect' });
+  }
+  const password_hash = await bcrypt.hash(String(newPassword), 12);
+  await db('users').where({ id: userRow.id }).update({ password_hash });
+  log.info('User changed password', userRow.username, 'id', userRow.id);
+  return res.json({ ok: true });
 });
 
 // Users list
@@ -92,7 +171,7 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (_req, res) => {
   const byId = new Map();
   for (const row of rows) {
     if (!byId.has(row.id)) {
-      byId.set(row.id, { id: row.id, username: row.username, groups: [] });
+      byId.set(row.id, { id: row.id, username: row.username, disabled: !!row.disabled, groups: [] });
     }
     if (row.group_name && !byId.get(row.id).groups.includes(row.group_name)) {
       byId.get(row.id).groups.push(row.group_name);
@@ -162,6 +241,60 @@ app.delete('/api/admin/users/:id', requireAuth, requireAdmin, async (req, res) =
   } catch (e) {
     log.error('Failed to delete user', e.message);
     return res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+// Update user groups and disabled flag
+app.post('/api/admin/users/:id/groups', requireAuth, requireAdmin, async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  const { groups, disabled } = req.body || {};
+  try {
+    const user = await db('users').where({ id }).first();
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Prevent locking yourself out of admin
+    const groupNames = Array.isArray(groups) ? groups.map((g) => String(g).trim()).filter((g) => g.length > 0) : [];
+
+    // If this update would remove admin from this user and they are the last admin, block it
+    const admins = await db('user_groups')
+      .join('groups', 'groups.id', 'user_groups.group_id')
+      .where('groups.name', 'admin')
+      .select('user_groups.user_id');
+    const adminIds = new Set(admins.map((a) => a.user_id));
+    const willBeAdmin = groupNames.includes('admin');
+    if (!willBeAdmin && adminIds.has(id) && adminIds.size === 1) {
+      return res.status(400).json({ error: 'Cannot remove admin role from the last admin user' });
+    }
+
+    // Upsert groups and user_groups
+    const groupIds = [];
+    for (const name of groupNames) {
+      let g = await db('groups').where({ name }).first();
+      if (!g) {
+        const [gid] = await db('groups').insert({ name });
+        g = { id: gid, name };
+      }
+      groupIds.push(g.id);
+    }
+
+    await db('user_groups').where({ user_id: id }).delete();
+    for (const gid of groupIds) {
+      await db('user_groups').insert({ user_id: id, group_id: gid });
+    }
+
+    // Update disabled flag (but don't allow disabling self if they are the last admin)
+    let disabledFlag = !!disabled;
+    if (id === req.user?.id && disabledFlag) {
+      return res.status(400).json({ error: 'You cannot disable your own account' });
+    }
+    await db('users').where({ id }).update({ disabled: disabledFlag });
+
+    log.info('User groups/disabled updated', user.username, 'id', id);
+    return res.json({ ok: true });
+  } catch (e) {
+    log.error('Failed to update user groups', e.message);
+    return res.status(500).json({ error: 'Failed to update user' });
   }
 });
 

@@ -27,6 +27,12 @@
     </form>
   </main>
   <script>
+    let csrfToken = '';
+    fetch('/api/csrf-token', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((d) => { csrfToken = d.csrfToken || ''; })
+      .catch(() => {});
+
     document.getElementById('login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const err = document.getElementById('error');
@@ -35,7 +41,11 @@
       const body = new FormData(form);
       const res = await fetch('/api/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+        },
         body: JSON.stringify({ username: body.get('username'), password: body.get('password') }),
       });
       const data = await res.json().catch(() => ({}));
