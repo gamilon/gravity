@@ -78,12 +78,12 @@ To serve on port 80 with nginx or Caddy, proxy to `http://127.0.0.1:3000`.
 - Create the admin user once: `ADMIN_USERNAME=admin ADMIN_PASSWORD=your-password npm run seed`. The seed only runs if no users exist.
 - Use `requireAdmin` in `server.js` for routes that should be restricted to the admin group.
 - **API tokens**: Admins create tokens at **/tokens**. Send as `Authorization: Bearer <token>` or `X-API-Key: <token>`. Tokens are stored hashed; plain token shown only once. Use `requireApiToken` for device endpoints (e.g. iSpindel).
+- **Logging**: Logs go to stdout/stderr and to `logs/gravity.log` by default. Configure with `LOG_LEVEL` (`error`, `warn`, `info`, `debug`), `LOG_DIR`, and `LOG_FILE`.
 
 ## Customize
 
 - **Database**: SQLite by default; data is stored in `data/gravity.sqlite3`. To switch to Postgres, set `DATABASE_URL` (e.g. `postgres://user:pass@host/dbname`) and add the `pg` package, then run `npm run migrate`.
 - **Migrations**: Run `npm run migrate` to apply migrations; `npm run migrate:rollback` to roll back one batch.
-- **Logging**: All logs go to stdout with timestamps. Set **LOG_LEVEL** to `error`, `warn`, `info`, or `debug` (default `info`). HTTP requests are logged; successful `/api/status` polls are skipped to avoid noise.
 - **Seeds**: Run `npm run seed` with `ADMIN_PASSWORD` (and optionally `ADMIN_USERNAME`) to create the admin group and one admin user. Safe to run again; it no-ops if users already exist.
 - Edit `public/index.html`, `public/styles.css`, and `public/app.js` for the UI.
 - Add routes in `server.js` for APIs or server-rendered pages.
