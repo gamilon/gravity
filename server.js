@@ -76,6 +76,30 @@ app.get('/api/me', requireAuth, async (req, res) => {
   res.json({ user: user ? { id: user.id, username: user.username, groups: user.groups } : null });
 });
 
+// Admin users overview (admin only)
+app.get('/admin', requireAuth, requireAdmin, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+app.get('/api/admin/users', requireAuth, requireAdmin, async (_req, res) => {
+  const rows = await db('users')
+    .leftJoin('user_groups', 'users.id', 'user_groups.user_id')
+    .leftJoin('groups', 'groups.id', 'user_groups.group_id')
+    .select('users.id', 'users.username', 'groups.name as group_name')
+    .orderBy('users.id', 'asc');
+
+  const byId = new Map();
+  for (const row of rows) {
+    if (!byId.has(row.id)) {
+      byId.set(row.id, { id: row.id, username: row.username, groups: [] });
+    }
+    if (row.group_name && !byId.get(row.id).groups.includes(row.group_name)) {
+      byId.get(row.id).groups.push(row.group_name);
+    }
+  }
+
+  res.json({ users: Array.from(byId.values()) });
+});
+
 // API tokens (admin only)
 app.get('/tokens', requireAuth, requireAdmin, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'tokens.html'));

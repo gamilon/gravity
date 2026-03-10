@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin — Gravity</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .admin-main { max-width: 48rem; margin: 0 auto; text-align: left; }
+    .admin-main h1 { text-align: center; }
+    .admin-main .nav { text-align: center; margin-bottom: 1rem; }
+    .admin-main table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    .admin-main th, .admin-main td { padding: 0.5rem; border-bottom: 1px solid #333; }
+    .admin-main th { text-align: left; }
+    .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; background: #2d2d44; color: #eee; font-size: 0.75rem; margin-right: 0.25rem; }
+    .badge-admin { background: #6ee7b7; color: #064e3b; }
+    .muted { color: #666; }
+  </style>
+</head>
+<body>
+  <main class="admin-main">
+    <h1>Admin</h1>
+    <p class="nav"><a href="/">← Home</a> · <a href="/tokens">API tokens</a></p>
+    <section>
+      <h2>Users &amp; groups</h2>
+      <p class="muted">Overview of accounts that can log in to Gravity.</p>
+      <table>
+        <thead>
+          <tr><th>ID</th><th>Username</th><th>Groups</th></tr>
+        </thead>
+        <tbody id="users-tbody">
+          <tr><td colspan="3" class="muted">Loading…</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+  <script>
+    const tbody = document.getElementById('users-tbody');
+
+    function escapeHtml(s) {
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    function loadUsers() {
+      fetch('/api/admin/users', { credentials: 'include' })
+        .then((r) => {
+          if (r.status === 401) { window.location.href = '/login'; return null; }
+          if (r.status === 403) { window.location.href = '/'; return null; }
+          return r.json();
+        })
+        .then((data) => {
+          if (!data) return;
+          if (!data.users || data.users.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" class="muted">No users found.</td></tr>';
+            return;
+          }
+          tbody.innerHTML = data.users.map((u) => {
+            const groups = (u.groups || []);
+            const groupsHtml = groups.length
+              ? groups.map((g) => '<span class="badge ' + (g === 'admin' ? 'badge-admin' : '') + '">' + escapeHtml(g) + '</span>').join(' ')
+              : '<span class="muted">none</span>';
+            return '<tr><td>' + u.id + '</td><td>' + escapeHtml(u.username) + '</td><td>' + groupsHtml + '</td></tr>';
+          }).join('');
+        })
+        .catch(() => {
+          tbody.innerHTML = '<tr><td colspan="3" class="muted">Failed to load users.</td></tr>';
+        });
+    }
+
+    loadUsers();
+  </script>
+</body>
+</html>
+
