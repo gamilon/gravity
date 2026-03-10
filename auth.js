@@ -46,19 +46,18 @@ async function requireAdmin(req, res, next) {
 }
 
 /**
- * Authenticate via API token (Bearer or X-API-Key). Sets req.apiToken and req.user (token owner).
- * Use for device/client access; does not require session.
+ * Authenticate via API token (Bearer or X-API-Key header only). Sets req.apiToken and req.user (token owner).
+ * Use for device/client access; does not require session. Do not pass tokens in URLs (they can leak in Referer/logs).
  */
 async function requireApiToken(req, res, next) {
   const raw =
     req.headers.authorization?.startsWith('Bearer ')
       ? req.headers.authorization.slice(7).trim()
       : req.headers['x-api-key']?.trim();
-  const token = raw || (typeof req.query?.token === 'string' ? req.query.token : null);
-  if (!token) {
-    return res.status(401).json({ error: 'API token required' });
+  if (!raw) {
+    return res.status(401).json({ error: 'API token required (Authorization: Bearer <token> or X-API-Key: <token>)' });
   }
-  const row = await validateToken(token);
+  const row = await validateToken(raw);
   if (!row) {
     return res.status(401).json({ error: 'Invalid API token' });
   }

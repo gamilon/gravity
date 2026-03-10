@@ -74,7 +74,9 @@ To serve on port 80 with nginx or Caddy, proxy to `http://127.0.0.1:3000`.
 ## Authentication
 
 - All app routes require login. The first user is created by seed and belongs to the **admin** group.
-- Set **SESSION_SECRET** in production (e.g. a long random string). Without it, sessions are not secure.
+- Set **SESSION_SECRET** in production (e.g. a long random string). The app **refuses to start** when `NODE_ENV=production` and the default secret is used.
+- **Login** is rate-limited (10 attempts per 15 minutes per IP). New user and password-change require a password of at least 8 characters.
+- **API tokens** are accepted only in request headers: `Authorization: Bearer <token>` or `X-API-Key: <token>`. Do not pass tokens in URLs (they can leak in Referer or logs).
 - Create the admin user once: `ADMIN_USERNAME=admin ADMIN_PASSWORD=your-password npm run seed`. The seed only runs if no users exist.
 - Use `requireAdmin` in `server.js` for routes that should be restricted to the admin group.
 - **API tokens**: Admins create tokens at **/tokens**. Send as `Authorization: Bearer <token>` or `X-API-Key: <token>`. Tokens are stored hashed; plain token shown only once. Use `requireApiToken` for device endpoints (e.g. iSpindel).

@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
 const session = require('express-session');
+const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');
 const bcrypt = require('bcryptjs');
 const db = require('./db');
@@ -12,7 +13,13 @@ const tokens = require('./lib/tokens');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
-const SESSION_SECRET = process.env.SESSION_SECRET || 'change-me-in-production';
+const DEFAULT_SESSION_SECRET = 'change-me-in-production';
+const SESSION_SECRET = process.env.SESSION_SECRET || DEFAULT_SESSION_SECRET;
+
+if (process.env.NODE_ENV === 'production' && SESSION_SECRET === DEFAULT_SESSION_SECRET) {
+  log.error('Refusing to start: set SESSION_SECRET in production');
+  process.exit(1);
+}
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -47,6 +54,8 @@ app.use((_req, res, next) => {
     'Content-Security-Policy',
     "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; form-action 'self'; frame-ancestors 'self'"
   );
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   next();
 });
 
@@ -81,8 +90,16 @@ app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many login attempts; try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Auth API
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', loginLimiter, async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password required' });
@@ -148,6 +165,9 @@ app.post('/api/account/password', requireAuth, async (req, res) => {
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: 'Current and new password are required' });
   }
+  if (String(newPassword).length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters' });
+  }
   const userRow = await db('users').where({ id: req.session.userId }).first();
   if (!userRow) return res.status(404).json({ error: 'User not found' });
   const ok = await bcrypt.compare(String(currentPassword), userRow.password_hash);
@@ -189,6 +209,10 @@ app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
   }
   const name = String(username).trim();
   if (!name) return res.status(400).json({ error: 'Username is required' });
+  if (name.length > 64) return res.status(400).json({ error: 'Username too long' });
+  if (String(password).length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
   try {
     const existing = await db('users').where({ username: name }).first();
     if (existing) {
@@ -255,6 +279,9 @@ app.post('/api/admin/users/:id/groups', requireAuth, requireAdmin, async (req, r
 
     // Prevent locking yourself out of admin
     const groupNames = Array.isArray(groups) ? groups.map((g) => String(g).trim()).filter((g) => g.length > 0) : [];
+    if (groupNames.some((g) => g.length > 64)) {
+      return res.status(400).json({ error: 'Group name too long' });
+    }
 
     // If this update would remove admin from this user and they are the last admin, block it
     const admins = await db('user_groups')
@@ -308,6 +335,7 @@ app.get('/api/admin/groups', requireAuth, requireAdmin, async (_req, res) => {
 app.post('/api/admin/groups', requireAuth, requireAdmin, async (req, res) => {
   const name = req.body?.name?.trim();
   if (!name) return res.status(400).json({ error: 'Name is required' });
+  if (name.length > 64) return res.status(400).json({ error: 'Group name too long' });
   try {
     await db('groups').insert({ name });
     const group = await db('groups').where({ name }).first();
@@ -352,6 +380,7 @@ app.get('/api/tokens', requireAuth, requireAdmin, async (req, res) => {
 app.post('/api/tokens', requireAuth, requireAdmin, async (req, res) => {
   const name = req.body?.name?.trim();
   if (!name) return res.status(400).json({ error: 'Name is required' });
+  if (name.length > 128) return res.status(400).json({ error: 'Token name too long' });
   try {
     const created = await tokens.createToken(name, req.session.userId);
     log.info('API token created', created.name, 'id', created.id);
