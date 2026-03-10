@@ -76,10 +76,12 @@ app.get('/api/me', requireAuth, async (req, res) => {
   res.json({ user: user ? { id: user.id, username: user.username, groups: user.groups } : null });
 });
 
-// Admin users overview (admin only)
+// Admin overview (users, groups) – admin only
 app.get('/admin', requireAuth, requireAdmin, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
+
+// Users list
 app.get('/api/admin/users', requireAuth, requireAdmin, async (_req, res) => {
   const rows = await db('users')
     .leftJoin('user_groups', 'users.id', 'user_groups.user_id')
@@ -98,6 +100,112 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (_req, res) => {
   }
 
   res.json({ users: Array.from(byId.values()) });
+});
+
+// Create user (optionally admin)
+app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
+  const { username, password, isAdmin } = req.body || {};
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required' });
+  }
+  const name = String(username).trim();
+  if (!name) return res.status(400).json({ error: 'Username is required' });
+  try {
+    const existing = await db('users').where({ username: name }).first();
+    if (existing) {
+      return res.status(409).json({ error: 'Username already exists' });
+    }
+    const password_hash = await bcrypt.hash(String(password), 12);
+    const [userId] = await db('users').insert({ username: name, password_hash });
+
+    if (isAdmin) {
+      let adminGroup = await db('groups').where({ name: 'admin' }).first();
+      if (!adminGroup) {
+        const [gid] = await db('groups').insert({ name: 'admin' });
+        adminGroup = { id: gid, name: 'admin' };
+      }
+      await db('user_groups').insert({ user_id: userId, group_id: adminGroup.id });
+    }
+
+    log.info('User created', name, 'id', userId);
+    return res.status(201).json({ ok: true });
+  } catch (e) {
+    log.error('Failed to create user', e.message);
+    return res.status(500).json({ error: 'Failed to create user' });
+  }
+});
+
+// Delete user
+app.delete('/api/admin/users/:id', requireAuth, requireAdmin, async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    const user = await db('users').where({ id }).first();
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (id === req.user?.id) {
+      return res.status(400).json({ error: 'You cannot delete your own account' });
+    }
+
+    // Prevent deleting the last admin user
+    const admins = await db('user_groups')
+      .join('groups', 'groups.id', 'user_groups.group_id')
+      .where('groups.name', 'admin')
+      .select('user_groups.user_id');
+    const adminIds = new Set(admins.map((a) => a.user_id));
+    if (adminIds.has(id) && adminIds.size === 1) {
+      return res.status(400).json({ error: 'Cannot delete the last admin user' });
+    }
+
+    await db('users').where({ id }).delete();
+    log.info('User deleted', user.username, 'id', id);
+    return res.json({ ok: true });
+  } catch (e) {
+    log.error('Failed to delete user', e.message);
+    return res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+// Groups list
+app.get('/api/admin/groups', requireAuth, requireAdmin, async (_req, res) => {
+  const groups = await db('groups').select('id', 'name').orderBy('name', 'asc');
+  res.json({ groups });
+});
+
+// Create group
+app.post('/api/admin/groups', requireAuth, requireAdmin, async (req, res) => {
+  const name = req.body?.name?.trim();
+  if (!name) return res.status(400).json({ error: 'Name is required' });
+  try {
+    await db('groups').insert({ name });
+    const group = await db('groups').where({ name }).first();
+    log.info('Group created', group.name, 'id', group.id);
+    return res.status(201).json({ group });
+  } catch (e) {
+    if (String(e.message).includes('UNIQUE')) {
+      return res.status(409).json({ error: 'Group already exists' });
+    }
+    log.error('Failed to create group', e.message);
+    return res.status(500).json({ error: 'Failed to create group' });
+  }
+});
+
+// Delete group (will also remove user mappings via FK if any)
+app.delete('/api/admin/groups/:id', requireAuth, requireAdmin, async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    const existing = await db('groups').where({ id }).first();
+    if (!existing) return res.status(404).json({ error: 'Group not found' });
+    if (existing.name === 'admin') {
+      return res.status(400).json({ error: 'Cannot delete admin group' });
+    }
+    await db('groups').where({ id }).delete();
+    log.info('Group deleted', existing.name, 'id', id);
+    return res.json({ ok: true });
+  } catch (e) {
+    log.error('Failed to delete group', e.message);
+    return res.status(500).json({ error: 'Failed to delete group' });
+  }
 });
 
 // API tokens (admin only)

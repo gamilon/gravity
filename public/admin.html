@@ -26,16 +26,47 @@
       <p class="muted">Overview of accounts that can log in to Gravity.</p>
       <table>
         <thead>
-          <tr><th>ID</th><th>Username</th><th>Groups</th></tr>
+          <tr><th>ID</th><th>Username</th><th>Groups</th><th></th></tr>
         </thead>
         <tbody id="users-tbody">
-          <tr><td colspan="3" class="muted">Loading…</td></tr>
+          <tr><td colspan="4" class="muted">Loading…</td></tr>
         </tbody>
       </table>
+      <form id="user-form" style="margin-top:1rem;">
+        <h3>Create user</h3>
+        <label for="user-username">Username</label><br />
+        <input id="user-username" type="text" autocomplete="off" /><br />
+        <label for="user-password">Password</label><br />
+        <input id="user-password" type="password" autocomplete="new-password" /><br />
+        <label><input type="checkbox" id="user-admin" /> Make admin</label><br />
+        <button type="submit">Create user</button>
+        <span id="user-error" class="muted"></span>
+      </form>
+    </section>
+
+    <section>
+      <h2>Groups</h2>
+      <p class="muted">Create logical groups (e.g. <code>admin</code>, <code>viewer</code>) to manage permissions.</p>
+      <form id="group-form">
+        <label for="group-name">New group name</label><br />
+        <input id="group-name" type="text" placeholder="e.g. brewer" />
+        <button type="submit">Create group</button>
+        <span id="group-error" class="muted"></span>
+      </form>
+      <ul id="groups-list" class="muted" style="margin-top:0.75rem;"></ul>
     </section>
   </main>
   <script>
     const tbody = document.getElementById('users-tbody');
+    const groupsList = document.getElementById('groups-list');
+    const groupForm = document.getElementById('group-form');
+    const groupNameInput = document.getElementById('group-name');
+    const groupError = document.getElementById('group-error');
+    const userForm = document.getElementById('user-form');
+    const userUsernameInput = document.getElementById('user-username');
+    const userPasswordInput = document.getElementById('user-password');
+    const userAdminInput = document.getElementById('user-admin');
+    const userError = document.getElementById('user-error');
 
     function escapeHtml(s) {
       const div = document.createElement('div');
@@ -53,7 +84,7 @@
         .then((data) => {
           if (!data) return;
           if (!data.users || data.users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="3" class="muted">No users found.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" class="muted">No users found.</td></tr>';
             return;
           }
           tbody.innerHTML = data.users.map((u) => {
@@ -61,15 +92,151 @@
             const groupsHtml = groups.length
               ? groups.map((g) => '<span class="badge ' + (g === 'admin' ? 'badge-admin' : '') + '">' + escapeHtml(g) + '</span>').join(' ')
               : '<span class="muted">none</span>';
-            return '<tr><td>' + u.id + '</td><td>' + escapeHtml(u.username) + '</td><td>' + groupsHtml + '</td></tr>';
+            return '<tr><td>' + u.id + '</td><td>' + escapeHtml(u.username) + '</td><td>' + groupsHtml +
+              '</td><td><button class="revoke" data-id="' + u.id + '">Delete</button></td></tr>';
           }).join('');
+          tbody.querySelectorAll('button.revoke').forEach((btn) => {
+            btn.addEventListener('click', () => {
+              const id = parseInt(btn.dataset.id, 10);
+              if (!Number.isInteger(id)) return;
+              if (!confirm('Delete this user?')) return;
+              fetch('/api/admin/users/' + id, {
+                method: 'DELETE',
+                credentials: 'include',
+              })
+                .then((r) => r.json().then((d) => ({ status: r.status, body: d })))
+                .then(({ status, body }) => {
+                  if (status >= 400) {
+                    userError.textContent = ' ' + (body.error || 'Failed to delete user');
+                    return;
+                  }
+                  loadUsers();
+                })
+                .catch(() => {
+                  userError.textContent = ' Failed to delete user.';
+                });
+            });
+          });
         })
         .catch(() => {
-          tbody.innerHTML = '<tr><td colspan="3" class="muted">Failed to load users.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="4" class="muted">Failed to load users.</td></tr>';
         });
     }
 
+    function loadGroups() {
+      fetch('/api/admin/groups', { credentials: 'include' })
+        .then((r) => {
+          if (r.status === 401) { window.location.href = '/login'; return null; }
+          if (r.status === 403) { window.location.href = '/'; return null; }
+          return r.json();
+        })
+        .then((data) => {
+          if (!data) return;
+          const groups = data.groups || [];
+          if (groups.length === 0) {
+            groupsList.innerHTML = '<li class="muted">No groups yet. The seed created <code>admin</code> once a user exists.</li>';
+            return;
+          }
+          groupsList.innerHTML = groups
+            .map((g) => {
+              const canDelete = g.name !== 'admin';
+              const btn = canDelete
+                ? ' <button data-id=\"' + g.id + '\" class=\"revoke\">Delete</button>'
+                : '';
+              return '<li><span class=\"badge ' + (g.name === 'admin' ? 'badge-admin' : '') + '\">' +
+                escapeHtml(g.name) + '</span>' + btn + '</li>';
+            })
+            .join('');
+          groupsList.querySelectorAll('button.revoke').forEach((btn) => {
+            btn.addEventListener('click', () => {
+              const id = parseInt(btn.dataset.id, 10);
+              if (!Number.isInteger(id)) return;
+              if (!confirm('Delete this group?')) return;
+              fetch('/api/admin/groups/' + id, {
+                method: 'DELETE',
+                credentials: 'include',
+              })
+                .then((r) => r.json().then((d) => ({ status: r.status, body: d })))
+                .then(({ status, body }) => {
+                  if (status >= 400) {
+                    groupError.textContent = ' ' + (body.error || 'Failed to delete group');
+                    return;
+                  }
+                  loadGroups();
+                })
+                .catch(() => {
+                  groupError.textContent = ' Failed to delete group.';
+                });
+            });
+          });
+        })
+        .catch(() => {
+          groupsList.innerHTML = '<li class="muted">Failed to load groups.</li>';
+        });
+    }
+
+    groupForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      groupError.textContent = '';
+      const name = groupNameInput.value.trim();
+      if (!name) {
+        groupError.textContent = ' Name is required.';
+        return;
+      }
+      fetch('/api/admin/groups', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+        .then((r) => r.json().then((d) => ({ status: r.status, body: d })))
+        .then(({ status, body }) => {
+          if (status >= 400) {
+            groupError.textContent = ' ' + (body.error || 'Failed to create group');
+            return;
+          }
+          groupNameInput.value = '';
+          loadGroups();
+        })
+        .catch(() => {
+          groupError.textContent = ' Failed to create group.';
+        });
+    });
+
+    userForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      userError.textContent = '';
+      const username = userUsernameInput.value.trim();
+      const password = userPasswordInput.value;
+      const isAdmin = !!userAdminInput.checked;
+      if (!username || !password) {
+        userError.textContent = ' Username and password are required.';
+        return;
+      }
+      fetch('/api/admin/users', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, isAdmin }),
+      })
+        .then((r) => r.json().then((d) => ({ status: r.status, body: d })))
+        .then(({ status, body }) => {
+          if (status >= 400) {
+            userError.textContent = ' ' + (body.error || 'Failed to create user');
+            return;
+          }
+          userUsernameInput.value = '';
+          userPasswordInput.value = '';
+          userAdminInput.checked = false;
+          loadUsers();
+        })
+        .catch(() => {
+          userError.textContent = ' Failed to create user.';
+        });
+    });
+
     loadUsers();
+    loadGroups();
   </script>
 </body>
 </html>
