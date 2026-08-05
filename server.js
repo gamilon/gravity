@@ -34,7 +34,9 @@ morgan.token('date', () => new Date().toISOString());
 app.use(
   morgan('[ :date ] :method :url :status :response-time ms', {
     stream: { write: (msg) => log.info(msg.trim()) },
-    skip: (req, res) => req.url === '/api/status' && res.statusCode === 200,
+    skip: (req, res) =>
+      process.env.NODE_ENV === 'test' ||
+      (req.url === '/api/status' && res.statusCode === 200),
   })
 );
 
@@ -473,7 +475,11 @@ async function start() {
   });
 }
 
-start().catch((err) => {
-  log.error(err);
-  process.exit(1);
-});
+module.exports = app;
+
+if (require.main === module) {
+  start().catch((err) => {
+    log.error(err);
+    process.exit(1);
+  });
+}
