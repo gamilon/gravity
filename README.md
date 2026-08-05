@@ -14,6 +14,14 @@ npm start
 
 Open http://localhost:3000 (or http://\<your-pi-ip\>:3000 from another device). Log in with the username and password you set in the seed step.
 
+## CI and tests
+
+```bash
+npm test
+```
+
+GitHub Actions runs the same suite on pushes and pull requests to `main` (Node 24). Requires Node.js 22+.
+
 ## Run on Raspberry Pi
 
 1. Copy the project to the Pi (e.g. `scp -r gravity pi@<pi-ip>:~`).

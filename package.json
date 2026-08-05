@@ -8,12 +8,17 @@
     "dev": "node server.js",
     "migrate": "knex migrate:latest",
     "migrate:rollback": "knex migrate:rollback",
-    "seed": "knex seed:run"
+    "seed": "knex seed:run",
+    "test": "node --test test/**/*.test.js",
+    "ci": "npm test"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
-  "keywords": ["self-hosted", "raspberry-pi"],
+  "keywords": [
+    "self-hosted",
+    "raspberry-pi"
+  ],
   "license": "MIT",
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -23,5 +28,8 @@
     "express-session": "^1.18.0",
     "knex": "^3.1.0",
     "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "supertest": "^7.2.2"
   }
 }
