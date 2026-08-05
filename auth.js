@@ -73,17 +73,29 @@ async function requireAdmin(req, res, next) {
   next();
 }
 
+function extractRawToken(req) {
+  if (req.headers.authorization?.startsWith('Bearer ')) {
+    return req.headers.authorization.slice(7).trim();
+  }
+  if (req.headers['x-api-key']) {
+    return String(req.headers['x-api-key']).trim();
+  }
+  if (req.body?.token != null && String(req.body.token).trim()) {
+    return String(req.body.token).trim();
+  }
+  return null;
+}
+
 /**
- * Authenticate via API token (Bearer or X-API-Key header only). Sets req.apiToken and req.user (token owner).
- * Use for device/client access; does not require session. Do not pass tokens in URLs (they can leak in Referer/logs).
+ * Authenticate via API token (Bearer, X-API-Key, or JSON body token).
+ * Sets req.apiToken and req.user (token owner). Do not pass tokens in URLs.
  */
 async function requireApiToken(req, res, next) {
-  const raw =
-    req.headers.authorization?.startsWith('Bearer ')
-      ? req.headers.authorization.slice(7).trim()
-      : req.headers['x-api-key']?.trim();
+  const raw = extractRawToken(req);
   if (!raw) {
-    return res.status(401).json({ error: 'API token required (Authorization: Bearer <token> or X-API-Key: <token>)' });
+    return res.status(401).json({
+      error: 'API token required (Authorization: Bearer <token>, X-API-Key, or JSON body token)',
+    });
   }
   const row = await validateToken(raw);
   if (!row) {
@@ -98,9 +110,22 @@ async function requireApiToken(req, res, next) {
   next();
 }
 
+/**
+ * Like requireApiToken but only accepts kind=device (iSpindel ingest).
+ */
+async function requireDeviceToken(req, res, next) {
+  return requireApiToken(req, res, () => {
+    if (req.apiToken.kind !== 'device') {
+      return res.status(401).json({ error: 'Device token required' });
+    }
+    next();
+  });
+}
+
 module.exports = {
   loadUserWithGroups,
   requireAuth,
   requireAdmin,
   requireApiToken,
+  requireDeviceToken,
 };

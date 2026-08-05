@@ -10,7 +10,8 @@ const assert = require('node:assert/strict');
 const bcrypt = require('bcryptjs');
 const request = require('supertest');
 
-const dbPath = path.join(__dirname, '..', 'data', 'gravity-test.sqlite3');
+const dbPath = path.join(__dirname, '..', 'data', 'gravity-test-smoke.sqlite3');
+process.env.GRAVITY_TEST_DB = dbPath;
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 for (const suffix of ['', '-wal', '-shm']) {
   try {
@@ -55,6 +56,7 @@ describe('gravity smoke', () => {
     await db.ensureMigrations();
 
     await db('user_groups').del();
+    await db('ispindel_readings').del().catch(() => {});
     await db('api_tokens').del().catch(() => {});
     await db('users').del();
     await db('groups').del();
@@ -151,12 +153,14 @@ describe('gravity smoke', () => {
     await agent.get('/api/me').expect(401);
   });
 
-  it('forbids non-admin from admin pages and tokens API', async () => {
+  it('forbids non-admin from admin pages and listing all tokens', async () => {
     const agent = request.agent(app);
     const { loginRes } = await login(agent, VIEWER_USER, VIEWER_PASS);
     assert.equal(loginRes.status, 200);
 
     await agent.get('/admin').expect(403);
-    await agent.get('/api/tokens').expect(403);
+    await agent.get('/tokens').expect(200);
+    await agent.get('/api/tokens').expect(200);
+    await agent.get('/api/tokens?all=1').expect(403);
   });
 });
