@@ -49,10 +49,250 @@ a:hover {
   font-size: 0.9rem;
 }
 
-#status.ok {
+#status.ok,
+.ok {
   color: #6ee7b7;
 }
 
-#status.err {
+#status.err,
+.err,
+.error {
   color: #fca5a5;
+}
+
+.success {
+  color: #6ee7b7;
+  font-size: 0.9rem;
+}
+
+.muted,
+.empty {
+  color: #666;
+}
+
+.nav {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+label {
+  display: block;
+  margin-top: 0.75rem;
+  color: #aaa;
+}
+
+input[type="text"],
+input[type="password"] {
+  width: 100%;
+  padding: 0.5rem;
+  margin-top: 0.25rem;
+  margin-bottom: 0.5rem;
+  background: #2d2d44;
+  border: 1px solid #444;
+  color: #eee;
+  border-radius: 4px;
+}
+
+button,
+button[type="submit"] {
+  margin-top: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+button:hover {
+  background: #2563eb;
+}
+
+button.revoke {
+  background: transparent;
+  color: #fca5a5;
+  border: 1px solid #fca5a5;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+}
+
+button.revoke:hover {
+  background: #fca5a5;
+  color: #1a1a2e;
+}
+
+button.edit {
+  background: transparent;
+  color: #93c5fd;
+  border: 1px solid #93c5fd;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+}
+
+button.edit:hover {
+  background: #93c5fd;
+  color: #1a1a2e;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+th,
+td {
+  padding: 0.5rem;
+  border-bottom: 1px solid #333;
+}
+
+th {
+  text-align: left;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: #2d2d44;
+  color: #eee;
+  font-size: 0.75rem;
+  margin-right: 0.25rem;
+}
+
+.badge-admin {
+  background: #6ee7b7;
+  color: #064e3b;
+}
+
+.login-form {
+  text-align: left;
+  max-width: 20rem;
+  margin: 0 auto;
+}
+
+.login-form button {
+  margin-top: 1.25rem;
+}
+
+.login-form .error {
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+}
+
+.admin-main,
+.account-main {
+  max-width: 48rem;
+  margin: 0 auto;
+  text-align: left;
+}
+
+.admin-main {
+  max-width: 48rem;
+}
+
+.account-main {
+  max-width: 32rem;
+}
+
+.admin-main h1,
+.account-main h1 {
+  text-align: center;
+}
+
+.account-main dl {
+  margin-top: 0;
+}
+
+.account-main dt {
+  font-weight: 600;
+  margin-top: 0.5rem;
+}
+
+.account-main dd {
+  margin: 0 0 0.25rem 0;
+}
+
+.tokens-list {
+  text-align: left;
+  max-width: 36rem;
+  margin: 1rem auto;
+}
+
+.tokens-list .prefix {
+  font-family: monospace;
+  color: #93c5fd;
+}
+
+.create-form {
+  max-width: 20rem;
+  margin: 1.5rem auto;
+  text-align: left;
+}
+
+.new-token {
+  background: #1e3a2f;
+  border: 1px solid #6ee7b7;
+  padding: 1rem;
+  border-radius: 8px;
+  margin: 1rem auto;
+  max-width: 36rem;
+  word-break: break-all;
+}
+
+.new-token strong {
+  color: #6ee7b7;
+}
+
+.edit-panel {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid #333;
+  border-radius: 8px;
+  background: #16162a;
+}
+
+.edit-panel h3 {
+  margin-top: 0;
+}
+
+.edit-panel .actions {
+  margin-top: 0.75rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.edit-panel button.cancel {
+  background: transparent;
+  border: 1px solid #666;
+  color: #aaa;
+}
+
+.edit-panel button.cancel:hover {
+  background: #333;
+  color: #eee;
+}
+
+.checkbox-row {
+  margin-top: 0.75rem;
+  color: #aaa;
+}
+
+.checkbox-row input {
+  width: auto;
+  margin-right: 0.5rem;
+}
+
+.is-hidden {
+  display: none;
+}
+
+.mt-1 {
+  margin-top: 1rem;
+}
+
+.mt-075 {
+  margin-top: 0.75rem;
 }

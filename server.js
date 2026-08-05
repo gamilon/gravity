@@ -15,10 +15,15 @@ const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 const DEFAULT_SESSION_SECRET = 'change-me-in-production';
 const SESSION_SECRET = process.env.SESSION_SECRET || DEFAULT_SESSION_SECRET;
+const TRUST_PROXY = process.env.TRUST_PROXY === '1';
 
 if (process.env.NODE_ENV === 'production' && SESSION_SECRET === DEFAULT_SESSION_SECRET) {
   log.error('Refusing to start: set SESSION_SECRET in production');
   process.exit(1);
+}
+
+if (TRUST_PROXY) {
+  app.set('trust proxy', 1);
 }
 
 app.use(express.json());
@@ -41,18 +46,18 @@ app.use(
     name: 'gravity.sid',
     cookie: {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production' && process.env.TRUST_PROXY === '1',
+      secure: process.env.NODE_ENV === 'production' && TRUST_PROXY,
       maxAge: 7 * 24 * 60 * 60 * 1000,
       sameSite: 'lax',
     },
   })
 );
 
-// Security headers (CSP helps mitigate XSS impact)
+// Security headers (CSP mitigates XSS; scripts must be external files)
 app.use((_req, res, next) => {
   res.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; form-action 'self'; frame-ancestors 'self'"
+    "default-src 'self'; script-src 'self'; style-src 'self'; form-action 'self'; frame-ancestors 'self'"
   );
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -76,6 +81,22 @@ function requireCsrf(req, res, next) {
   next();
 }
 
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many login attempts; try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const sensitiveLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: { error: 'Too many requests; try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // CSRF token for unauthenticated (e.g. login page)
 app.get('/api/csrf-token', (req, res) => {
   const csrfToken = ensureCsrfToken(req);
@@ -84,18 +105,30 @@ app.get('/api/csrf-token', (req, res) => {
 
 app.use(requireCsrf);
 
-// Login page (before static)
+// Page routes (HTML only via sendFile; not via static)
 app.get('/login', (req, res) => {
   if (req.session?.userId) return res.redirect('/');
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: { error: 'Too many login attempts; try again later' },
-  standardHeaders: true,
-  legacyHeaders: false,
+app.get('/', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/admin', requireAuth, requireAdmin, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
+app.get('/account', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'account.html'));
+});
+
+app.get('/tokens', requireAuth, requireAdmin, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'tokens.html'));
+});
+
+app.get('/status', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'status.html'));
 });
 
 // Auth API
@@ -113,10 +146,25 @@ app.post('/api/login', loginLimiter, async (req, res) => {
     log.info('Login failed (disabled user)', username);
     return res.status(403).json({ error: 'Account is disabled' });
   }
-  req.session.userId = user.id;
-  const withGroups = await loadUserWithGroups(user.id);
-  log.info('Login ok', withGroups.username);
-  return res.json({ user: { id: withGroups.id, username: withGroups.username, groups: withGroups.groups } });
+  req.session.regenerate(async (err) => {
+    if (err) {
+      log.error('Session regenerate failed', err.message);
+      return res.status(500).json({ error: 'Login failed' });
+    }
+    req.session.userId = user.id;
+    ensureCsrfToken(req);
+    try {
+      const withGroups = await loadUserWithGroups(user.id);
+      log.info('Login ok', withGroups.username);
+      return res.json({
+        user: { id: withGroups.id, username: withGroups.username, groups: withGroups.groups },
+        csrfToken: req.session.csrfToken,
+      });
+    } catch (e) {
+      log.error('Login failed after regenerate', e.message);
+      return res.status(500).json({ error: 'Login failed' });
+    }
+  });
 });
 
 app.post('/api/logout', (req, res) => {
@@ -129,25 +177,16 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/api/me', requireAuth, async (req, res) => {
-  const user = await loadUserWithGroups(req.session.userId);
   const csrfToken = ensureCsrfToken(req);
+  const user = req.user;
   res.json({
     user: user ? { id: user.id, username: user.username, groups: user.groups } : null,
     csrfToken,
   });
 });
 
-// Admin overview (users, groups) – admin only
-app.get('/admin', requireAuth, requireAdmin, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
-});
-
-// My account
-app.get('/account', requireAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'account.html'));
-});
 app.get('/api/account', requireAuth, async (req, res) => {
-  const user = await loadUserWithGroups(req.session.userId);
+  const user = req.user;
   if (!user) return res.status(404).json({ error: 'User not found' });
   const csrfToken = ensureCsrfToken(req);
   res.json({
@@ -160,7 +199,8 @@ app.get('/api/account', requireAuth, async (req, res) => {
     },
   });
 });
-app.post('/api/account/password', requireAuth, async (req, res) => {
+
+app.post('/api/account/password', requireAuth, sensitiveLimiter, async (req, res) => {
   const { currentPassword, newPassword } = req.body || {};
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: 'Current and new password are required' });
@@ -185,7 +225,7 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (_req, res) => {
   const rows = await db('users')
     .leftJoin('user_groups', 'users.id', 'user_groups.user_id')
     .leftJoin('groups', 'groups.id', 'user_groups.group_id')
-    .select('users.id', 'users.username', 'groups.name as group_name')
+    .select('users.id', 'users.username', 'users.disabled', 'groups.name as group_name')
     .orderBy('users.id', 'asc');
 
   const byId = new Map();
@@ -202,7 +242,7 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (_req, res) => {
 });
 
 // Create user (optionally admin)
-app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/admin/users', requireAuth, requireAdmin, sensitiveLimiter, async (req, res) => {
   const { username, password, isAdmin } = req.body || {};
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required' });
@@ -269,7 +309,7 @@ app.delete('/api/admin/users/:id', requireAuth, requireAdmin, async (req, res) =
 });
 
 // Update user groups and disabled flag
-app.post('/api/admin/users/:id/groups', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/admin/users/:id/groups', requireAuth, requireAdmin, sensitiveLimiter, async (req, res) => {
   const id = Number.parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
   const { groups, disabled } = req.body || {};
@@ -332,7 +372,7 @@ app.get('/api/admin/groups', requireAuth, requireAdmin, async (_req, res) => {
 });
 
 // Create group
-app.post('/api/admin/groups', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/admin/groups', requireAuth, requireAdmin, sensitiveLimiter, async (req, res) => {
   const name = req.body?.name?.trim();
   if (!name) return res.status(400).json({ error: 'Name is required' });
   if (name.length > 64) return res.status(400).json({ error: 'Group name too long' });
@@ -370,14 +410,11 @@ app.delete('/api/admin/groups/:id', requireAuth, requireAdmin, async (req, res) 
 });
 
 // API tokens (admin only)
-app.get('/tokens', requireAuth, requireAdmin, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'tokens.html'));
-});
-app.get('/api/tokens', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/tokens', requireAuth, requireAdmin, async (_req, res) => {
   const list = await tokens.listTokens();
   res.json({ tokens: list });
 });
-app.post('/api/tokens', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/tokens', requireAuth, requireAdmin, sensitiveLimiter, async (req, res) => {
   const name = req.body?.name?.trim();
   if (!name) return res.status(400).json({ error: 'Name is required' });
   if (name.length > 128) return res.status(400).json({ error: 'Token name too long' });
@@ -399,15 +436,8 @@ app.delete('/api/tokens/:id', requireAuth, requireAdmin, async (req, res) => {
   return res.json({ ok: true });
 });
 
-// Status page (protected)
-app.get('/status', requireAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'status.html'));
-});
-
-app.use(express.static(path.join(__dirname, 'public')));
-
 // Health/status for monitoring (protected; requires auth)
-app.get('/api/status', requireAuth, async (req, res) => {
+app.get('/api/status', requireAuth, async (_req, res) => {
   let dbOk = false;
   try {
     await db.raw('select 1');
@@ -423,11 +453,18 @@ app.get('/api/status', requireAuth, async (req, res) => {
   });
 });
 
-// Home: redirect to login if not authenticated
-app.get('/', (req, res) => {
-  if (!req.session?.userId) return res.redirect('/login');
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+// Assets only: never serve HTML via static (pages use guarded sendFile routes)
+app.use((req, res, next) => {
+  if (/\.html?$/i.test(req.path)) {
+    return res.status(404).send('Not found');
+  }
+  next();
 });
+app.use(
+  express.static(path.join(__dirname, 'public'), {
+    index: false,
+  })
+);
 
 async function start() {
   await db.ensureMigrations();
