@@ -21,7 +21,9 @@ module.exports = {
   test: {
     ...sqliteBase,
     connection: {
-      filename: path.join(__dirname, 'data', 'gravity-test.sqlite3'),
+      filename:
+        process.env.GRAVITY_TEST_DB ||
+        path.join(__dirname, 'data', 'gravity-test.sqlite3'),
     },
   },
   production: {

@@ -7,8 +7,9 @@ const morgan = require('morgan');
 const bcrypt = require('bcryptjs');
 const db = require('./db');
 const log = require('./lib/logger');
-const { requireAuth, requireAdmin, loadUserWithGroups } = require('./auth');
+const { requireAuth, requireAdmin, requireDeviceToken, loadUserWithGroups } = require('./auth');
 const tokens = require('./lib/tokens');
+const ispindel = require('./lib/ispindel');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -75,6 +76,8 @@ function ensureCsrfToken(req) {
 
 function requireCsrf(req, res, next) {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+  // iSpindel posts token in JSON body with no session CSRF
+  if (req.path === '/api/ispindel') return next();
   if (req.headers.authorization?.startsWith('Bearer ') || req.headers['x-api-key']) return next();
   const token = req.headers['x-csrf-token'];
   if (!token || token !== req.session?.csrfToken) {
@@ -94,6 +97,14 @@ const loginLimiter = rateLimit({
 const sensitiveLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
+  message: { error: 'Too many requests; try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const ispindelLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
   message: { error: 'Too many requests; try again later' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -125,8 +136,12 @@ app.get('/account', requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'account.html'));
 });
 
-app.get('/tokens', requireAuth, requireAdmin, (req, res) => {
+app.get('/tokens', requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'tokens.html'));
+});
+
+app.get('/ispindel', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'ispindel.html'));
 });
 
 app.get('/status', requireAuth, (req, res) => {
@@ -411,31 +426,106 @@ app.delete('/api/admin/groups/:id', requireAuth, requireAdmin, async (req, res) 
   }
 });
 
-// API tokens (admin only)
-app.get('/api/tokens', requireAuth, requireAdmin, async (_req, res) => {
-  const list = await tokens.listTokens();
+// API tokens: users manage own device tokens; admins may create admin tokens / list all
+app.get('/api/tokens', requireAuth, async (req, res) => {
+  const isAdmin = req.user.groups.includes('admin');
+  const wantAll = req.query.all === '1' || req.query.all === 'true';
+  if (wantAll && !isAdmin) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const kind = req.query.kind ? String(req.query.kind) : null;
+  if (kind && !tokens.KINDS.has(kind)) {
+    return res.status(400).json({ error: 'Invalid kind' });
+  }
+  const list = await tokens.listTokens({
+    userId: req.user.id,
+    all: wantAll && isAdmin,
+    kind,
+  });
   res.json({ tokens: list });
 });
-app.post('/api/tokens', requireAuth, requireAdmin, sensitiveLimiter, async (req, res) => {
+
+app.post('/api/tokens', requireAuth, sensitiveLimiter, async (req, res) => {
   const name = req.body?.name?.trim();
   if (!name) return res.status(400).json({ error: 'Name is required' });
   if (name.length > 128) return res.status(400).json({ error: 'Token name too long' });
+
+  const isAdmin = req.user.groups.includes('admin');
+  let kind = tokens.normalizeKind(req.body?.kind);
+  if (req.body?.kind != null && req.body.kind !== '' && !kind) {
+    return res.status(400).json({ error: 'Invalid kind (use device or admin)' });
+  }
+  if (!kind) kind = 'device';
+  if (kind === 'admin' && !isAdmin) {
+    return res.status(403).json({ error: 'Only admins can create admin tokens' });
+  }
+
   try {
-    const created = await tokens.createToken(name, req.session.userId);
-    log.info('API token created', created.name, 'id', created.id);
+    const created = await tokens.createToken(name, req.user.id, kind);
+    log.info('API token created', created.kind, created.name, 'id', created.id, 'user', req.user.username);
     return res.status(201).json(created);
   } catch (e) {
     log.error('Failed to create API token', e.message);
     return res.status(500).json({ error: 'Failed to create token' });
   }
 });
-app.delete('/api/tokens/:id', requireAuth, requireAdmin, async (req, res) => {
+
+app.delete('/api/tokens/:id', requireAuth, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+  const existing = await tokens.getTokenById(id);
+  if (!existing) return res.status(404).json({ error: 'Token not found' });
+  const isAdmin = req.user.groups.includes('admin');
+  if (!isAdmin && existing.user_id !== req.user.id) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const n = await tokens.revokeToken(id);
   if (n === 0) return res.status(404).json({ error: 'Token not found' });
-  log.info('API token revoked', id);
+  log.info('API token revoked', id, 'by', req.user.username);
   return res.json({ ok: true });
+});
+
+// iSpindel ingest (device token; CSRF skipped for this path)
+app.post('/api/ispindel', ispindelLimiter, requireDeviceToken, async (req, res) => {
+  const parsed = ispindel.parseReading(req.body || {});
+  if (parsed.error) {
+    return res.status(400).json({ error: parsed.error });
+  }
+  try {
+    const id = await ispindel.insertReading(req.apiToken.id, parsed.reading);
+    log.info('iSpindel reading', 'token', req.apiToken.id, 'reading', id);
+    return res.json({ ok: true, id });
+  } catch (e) {
+    log.error('Failed to store iSpindel reading', e.message);
+    return res.status(500).json({ error: 'Failed to store reading' });
+  }
+});
+
+app.get('/api/ispindel/devices', requireAuth, async (req, res) => {
+  const devices = await ispindel.listDevicesWithLatest({
+    userId: req.user.id,
+    isAdmin: req.user.groups.includes('admin'),
+  });
+  res.json({ devices });
+});
+
+app.get('/api/ispindel/readings', requireAuth, async (req, res) => {
+  const tokenId = parseInt(req.query.token_id, 10);
+  if (Number.isNaN(tokenId)) {
+    return res.status(400).json({ error: 'token_id is required' });
+  }
+  let limit = parseInt(req.query.limit, 10);
+  if (Number.isNaN(limit) || limit < 1) limit = 100;
+  if (limit > 500) limit = 500;
+
+  const token = await ispindel.canAccessDeviceToken(tokenId, {
+    userId: req.user.id,
+    isAdmin: req.user.groups.includes('admin'),
+  });
+  if (!token) return res.status(404).json({ error: 'Device not found' });
+
+  const readings = await ispindel.listReadings(tokenId, limit);
+  res.json({ readings });
 });
 
 // Health/status for monitoring (protected; requires auth)

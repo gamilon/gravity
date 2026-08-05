@@ -82,7 +82,7 @@ Only enable `TRUST_PROXY` when Gravity sits behind a trusted proxy; otherwise cl
 ## Project layout
 
 - `server.js` – Express server; auth, API routes. HTML pages are served only via guarded routes.
-- `auth.js` – Session helpers and `requireAuth` / `requireAdmin` / `requireApiToken` middleware.
+- `auth.js` – Session helpers and `requireAuth` / `requireAdmin` / `requireApiToken` / `requireDeviceToken` middleware.
 - `public/` – Frontend assets. HTML is not served by static file middleware; CSS/JS are.
 - `public/js/` – Shared (`common.js`) and per-page scripts.
 - `GET /login`, `POST /api/login`, `POST /api/logout`, `GET /api/me` – Auth.
@@ -94,11 +94,23 @@ Only enable `TRUST_PROXY` when Gravity sits behind a trusted proxy; otherwise cl
 - Set **SESSION_SECRET** in production (e.g. a long random string). The app **refuses to start** when `NODE_ENV=production` and the default secret is used.
 - Login regenerates the session (prevents session fixation). Disabled accounts are rejected on every authenticated request, not only at login.
 - **Login** is rate-limited (10 attempts per 15 minutes per IP). Password changes and sensitive admin/token creates are rate-limited (30 / 15 min). New user and password-change require a password of at least 8 characters.
-- **API tokens** are accepted only in request headers: `Authorization: Bearer <token>` or `X-API-Key: <token>`. Do not pass tokens in URLs (they can leak in Referer or logs). Tokens belonging to disabled users are rejected.
+- **API tokens** come in two kinds: **device** (any logged-in user, own tokens) and **admin** (admins only). Secrets are shown once, stored hashed. Prefer headers (`Authorization: Bearer` or `X-API-Key`); iSpindel may send `token` in the JSON body. Do not put tokens in URLs. Tokens belonging to disabled users are rejected.
 - Create the admin user once: `ADMIN_USERNAME=admin ADMIN_PASSWORD=your-password npm run seed`. The seed only runs if no users exist.
 - Use `requireAdmin` in `server.js` for routes that should be restricted to the admin group.
-- **API tokens**: Admins create tokens at **/tokens**. Send as `Authorization: Bearer <token>` or `X-API-Key: <token>`. Tokens are stored hashed; plain token shown only once. Use `requireApiToken` for device endpoints (e.g. iSpindel).
 - **Logging**: Logs go to stdout/stderr and to `logs/gravity.log` by default. Configure with `LOG_LEVEL` (`error`, `warn`, `info`, `debug`), `LOG_DIR`, and `LOG_FILE`.
+
+## iSpindel
+
+1. Log in and open **/tokens**. Create one **device token** per physical iSpindel (e.g. `Ferm fridge`).
+2. Copy the one-time secret into the iSpindel **Token** field.
+3. Point the device at your Gravity host:
+   - Service: **HTTP** (or HTTPS if you terminate TLS at a reverse proxy)
+   - Server / IP: your Pi or hostname
+   - Port: `3000` (or `443` behind TLS proxy)
+   - Path / URI: **`/api/ispindel`**
+4. Open **/ispindel** to see latest readings and recent history. Each token is a separate device stream.
+
+Keep Gravity on a trusted LAN or behind TLS (`TRUST_PROXY=1` when the proxy terminates HTTPS).
 
 ## Customize
 

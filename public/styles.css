@@ -296,3 +296,57 @@ th {
 .mt-075 {
   margin-top: 0.75rem;
 }
+
+.mt-2 {
+  margin-top: 2rem;
+}
+
+.wide-main {
+  max-width: 48rem;
+  margin: 0 auto;
+  text-align: left;
+}
+
+.wide-main h1 {
+  text-align: center;
+}
+
+.device-list {
+  margin-top: 1.5rem;
+}
+
+.device-card {
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+  background: #16162a;
+}
+
+.device-card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+}
+
+.reading-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+  gap: 0.75rem;
+  margin: 0.75rem 0 1rem;
+}
+
+.reading-summary dt {
+  font-size: 0.75rem;
+  color: #888;
+  margin: 0;
+}
+
+.reading-summary dd {
+  margin: 0.15rem 0 0;
+  font-size: 1.05rem;
+}
+
+.device-card .history {
+  margin-top: 0.75rem;
+  overflow-x: auto;
+}

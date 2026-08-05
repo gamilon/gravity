@@ -7,28 +7,58 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <main>
+  <main class="wide-main">
     <h1>API tokens</h1>
-    <p><a href="/">← Home</a></p>
-    <p>Use these tokens to authenticate API requests. Send them in request headers only: <code>Authorization: Bearer &lt;token&gt;</code> or <code>X-API-Key: &lt;token&gt;</code>. Do not put tokens in URLs.</p>
+    <p class="nav"><a href="/">← Home</a> · <a href="/ispindel">iSpindel</a></p>
+    <p>
+      Create <strong>one device token per iSpindel</strong>. Paste the secret into the device’s Token field
+      and set the server path to <code>/api/ispindel</code>.
+      Headers also work: <code>Authorization: Bearer …</code> or <code>X-API-Key</code>. Do not put tokens in URLs.
+    </p>
 
-    <div class="create-form">
-      <label for="name">New token name</label>
-      <input id="name" type="text" placeholder="e.g. iSpindel device" />
-      <button type="button" id="create">Create token</button>
-    </div>
-    <div id="new-token-box" class="new-token is-hidden"></div>
+    <section>
+      <h2>Device tokens</h2>
+      <div class="create-form">
+        <label for="device-name">New device token name</label>
+        <input id="device-name" type="text" placeholder="e.g. Ferm fridge iSpindel" />
+        <button type="button" id="create-device">Create device token</button>
+      </div>
+      <div id="new-token-box" class="new-token is-hidden"></div>
+      <div class="tokens-list">
+        <table>
+          <thead>
+            <tr><th>Name</th><th>Prefix</th><th>Last used</th><th></th></tr>
+          </thead>
+          <tbody id="device-tbody">
+            <tr><td colspan="4" class="empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
-    <div class="tokens-list">
-      <table>
-        <thead>
-          <tr><th>Name</th><th>Prefix</th><th>Last used</th><th></th></tr>
-        </thead>
-        <tbody id="tokens-tbody">
-          <tr><td colspan="4" class="empty">Loading…</td></tr>
-        </tbody>
-      </table>
-    </div>
+    <section id="admin-tokens-section" class="is-hidden mt-2">
+      <h2>Admin tokens</h2>
+      <p class="muted">Only admins can create these. Not used for iSpindel ingest.</p>
+      <div class="create-form">
+        <label for="admin-name">New admin token name</label>
+        <input id="admin-name" type="text" placeholder="e.g. automation" />
+        <button type="button" id="create-admin">Create admin token</button>
+      </div>
+      <label class="checkbox-row">
+        <input type="checkbox" id="show-all" />
+        Show all users’ tokens
+      </label>
+      <div class="tokens-list">
+        <table>
+          <thead>
+            <tr><th>Name</th><th>Owner</th><th>Kind</th><th>Prefix</th><th>Last used</th><th></th></tr>
+          </thead>
+          <tbody id="admin-tbody">
+            <tr><td colspan="6" class="empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
   </main>
   <script src="/js/common.js"></script>
   <script src="/js/tokens.js"></script>

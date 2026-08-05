@@ -9,7 +9,7 @@
     "migrate": "knex migrate:latest",
     "migrate:rollback": "knex migrate:rollback",
     "seed": "knex seed:run",
-    "test": "node --test test/**/*.test.js",
+    "test": "node --test test/smoke.test.js && node --test test/ispindel.test.js",
     "ci": "npm test"
   },
   "engines": {
