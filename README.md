@@ -20,7 +20,9 @@ Open http://localhost:3000 (or http://\<your-pi-ip\>:3000 from another device). 
 npm test
 ```
 
-GitHub Actions runs the same suite on pushes and pull requests to `main` (Node 24). Requires Node.js 22+.
+GitHub Actions on `main` runs `npm ci`, `npm audit --audit-level=high`, and the test suite (Node 24). Requires Node.js 22+.
+
+**Supply-chain hygiene:** installs use the committed lockfile (`npm ci`). `.npmrc` sets `min-release-age=14` so brand-new publishes are skipped (npm ≥ 11.10). Dependabot opens weekly update PRs with a 14-day cooldown on version bumps; security updates are not delayed. Review those PRs before merging.
 
 ## Run on Raspberry Pi
 
