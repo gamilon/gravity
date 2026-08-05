@@ -5,17 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Admin — Gravity</title>
   <link rel="stylesheet" href="/styles.css" />
-  <style>
-    .admin-main { max-width: 48rem; margin: 0 auto; text-align: left; }
-    .admin-main h1 { text-align: center; }
-    .admin-main .nav { text-align: center; margin-bottom: 1rem; }
-    .admin-main table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-    .admin-main th, .admin-main td { padding: 0.5rem; border-bottom: 1px solid #333; }
-    .admin-main th { text-align: left; }
-    .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; background: #2d2d44; color: #eee; font-size: 0.75rem; margin-right: 0.25rem; }
-    .badge-admin { background: #6ee7b7; color: #064e3b; }
-    .muted { color: #666; }
-  </style>
 </head>
 <body>
   <main class="admin-main">
@@ -32,13 +21,31 @@
           <tr><td colspan="4" class="muted">Loading…</td></tr>
         </tbody>
       </table>
-      <form id="user-form" style="margin-top:1rem;">
+
+      <div id="edit-panel" class="edit-panel" hidden>
+        <h3>Edit user: <span id="edit-username"></span></h3>
+        <form id="edit-form">
+          <label for="edit-groups">Groups (comma-separated)</label>
+          <input id="edit-groups" type="text" placeholder="e.g. admin,viewer" />
+          <label class="checkbox-row">
+            <input type="checkbox" id="edit-disabled" />
+            Disabled
+          </label>
+          <div class="actions">
+            <button type="submit">Save</button>
+            <button type="button" class="cancel" id="edit-cancel">Cancel</button>
+            <span id="edit-error" class="error"></span>
+          </div>
+        </form>
+      </div>
+
+      <form id="user-form" class="mt-1">
         <h3>Create user</h3>
-        <label for="user-username">Username</label><br />
-        <input id="user-username" type="text" autocomplete="off" /><br />
-        <label for="user-password">Password</label><br />
-        <input id="user-password" type="password" autocomplete="new-password" /><br />
-        <label><input type="checkbox" id="user-admin" /> Make admin</label><br />
+        <label for="user-username">Username</label>
+        <input id="user-username" type="text" autocomplete="off" />
+        <label for="user-password">Password</label>
+        <input id="user-password" type="password" autocomplete="new-password" />
+        <label class="checkbox-row"><input type="checkbox" id="user-admin" /> Make admin</label>
         <button type="submit">Create user</button>
         <span id="user-error" class="muted"></span>
       </form>
@@ -48,240 +55,15 @@
       <h2>Groups</h2>
       <p class="muted">Create logical groups (e.g. <code>admin</code>, <code>viewer</code>) to manage permissions.</p>
       <form id="group-form">
-        <label for="group-name">New group name</label><br />
+        <label for="group-name">New group name</label>
         <input id="group-name" type="text" placeholder="e.g. brewer" />
         <button type="submit">Create group</button>
         <span id="group-error" class="muted"></span>
       </form>
-      <ul id="groups-list" class="muted" style="margin-top:0.75rem;"></ul>
+      <ul id="groups-list" class="muted mt-075"></ul>
     </section>
   </main>
-  <script>
-    const tbody = document.getElementById('users-tbody');
-    const groupsList = document.getElementById('groups-list');
-    const groupForm = document.getElementById('group-form');
-    const groupNameInput = document.getElementById('group-name');
-    const groupError = document.getElementById('group-error');
-    const userForm = document.getElementById('user-form');
-    const userUsernameInput = document.getElementById('user-username');
-    const userPasswordInput = document.getElementById('user-password');
-    const userAdminInput = document.getElementById('user-admin');
-    const userError = document.getElementById('user-error');
-    let csrfToken = '';
-
-    function escapeHtml(s) {
-      if (s == null) return '';
-      const div = document.createElement('div');
-      div.textContent = String(s);
-      return div.innerHTML;
-    }
-
-    function loadUsers() {
-      fetch('/api/admin/users', { credentials: 'include' })
-        .then((r) => {
-          if (r.status === 401) { window.location.href = '/login'; return null; }
-          if (r.status === 403) { window.location.href = '/'; return null; }
-          return r.json();
-        })
-        .then((data) => {
-          if (!data) return;
-          if (!data.users || data.users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" class="muted">No users found.</td></tr>';
-            return;
-          }
-          tbody.innerHTML = data.users.map((u) => {
-            const groups = (u.groups || []);
-            const groupsHtml = groups.length
-              ? groups.map((g) => '<span class="badge ' + (g === 'admin' ? 'badge-admin' : '') + '">' + escapeHtml(g) + '</span>').join(' ')
-              : '<span class="muted">none</span>';
-            const status = u.disabled ? ' <span class="muted">(disabled)</span>' : '';
-            return '<tr><td>' + u.id + '</td><td>' + escapeHtml(u.username) + status + '</td><td>' + groupsHtml +
-              '</td><td><button class="edit" data-id="' + u.id + '" data-groups="' + escapeHtml(groups.join(',')) +
-              '" data-disabled="' + (u.disabled ? '1' : '0') + '">Edit</button> ' +
-              '<button class="revoke" data-id="' + u.id + '">Delete</button></td></tr>';
-          }).join('');
-          tbody.querySelectorAll('button.revoke').forEach((btn) => {
-            btn.addEventListener('click', () => {
-              const id = parseInt(btn.dataset.id, 10);
-              if (!Number.isInteger(id)) return;
-              if (!confirm('Delete this user?')) return;
-              fetch('/api/admin/users/' + id, {
-                method: 'DELETE',
-                credentials: 'include',
-                headers: { 'X-CSRF-Token': csrfToken },
-              })
-                .then((r) => r.json().then((d) => ({ status: r.status, body: d })))
-                .then(({ status, body }) => {
-                  if (status >= 400) {
-                    userError.textContent = ' ' + (body.error || 'Failed to delete user');
-                    return;
-                  }
-                  loadUsers();
-                })
-                .catch(() => {
-                  userError.textContent = ' Failed to delete user.';
-                });
-            });
-          });
-          tbody.querySelectorAll('button.edit').forEach((btn) => {
-            btn.addEventListener('click', () => {
-              const id = parseInt(btn.dataset.id, 10);
-              if (!Number.isInteger(id)) return;
-              const existingGroups = (btn.dataset.groups || '').split(',').filter((g) => g.trim() !== '');
-              const groupsInput = prompt('Groups (comma-separated), e.g. admin,viewer', existingGroups.join(', '));
-              if (groupsInput === null) return;
-              const groups = groupsInput.split(',').map((g) => g.trim()).filter((g) => g.length > 0);
-              const disable = confirm('Disable this user? OK = disabled, Cancel = active');
-              userError.textContent = '';
-              fetch('/api/admin/users/' + id + '/groups', {
-                method: 'POST',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-                body: JSON.stringify({ groups, disabled: disable }),
-              })
-                .then((r) => r.json().then((d) => ({ status: r.status, body: d })))
-                .then(({ status, body }) => {
-                  if (status >= 400) {
-                    userError.textContent = ' ' + (body.error || 'Failed to update user');
-                    return;
-                  }
-                  loadUsers();
-                })
-                .catch(() => {
-                  userError.textContent = ' Failed to update user.';
-                });
-            });
-          });
-        })
-        .catch(() => {
-          tbody.innerHTML = '<tr><td colspan="4" class="muted">Failed to load users.</td></tr>';
-        });
-    }
-
-    function loadGroups() {
-      fetch('/api/admin/groups', { credentials: 'include' })
-        .then((r) => {
-          if (r.status === 401) { window.location.href = '/login'; return null; }
-          if (r.status === 403) { window.location.href = '/'; return null; }
-          return r.json();
-        })
-        .then((data) => {
-          if (!data) return;
-          const groups = data.groups || [];
-          if (groups.length === 0) {
-            groupsList.innerHTML = '<li class="muted">No groups yet. The seed created <code>admin</code> once a user exists.</li>';
-            return;
-          }
-          groupsList.innerHTML = groups
-            .map((g) => {
-              const canDelete = g.name !== 'admin';
-              const btn = canDelete
-                ? ' <button data-id=\"' + g.id + '\" class=\"revoke\">Delete</button>'
-                : '';
-              return '<li><span class=\"badge ' + (g.name === 'admin' ? 'badge-admin' : '') + '\">' +
-                escapeHtml(g.name) + '</span>' + btn + '</li>';
-            })
-            .join('');
-          groupsList.querySelectorAll('button.revoke').forEach((btn) => {
-            btn.addEventListener('click', () => {
-              const id = parseInt(btn.dataset.id, 10);
-              if (!Number.isInteger(id)) return;
-              if (!confirm('Delete this group?')) return;
-              fetch('/api/admin/groups/' + id, {
-                method: 'DELETE',
-                credentials: 'include',
-                headers: { 'X-CSRF-Token': csrfToken },
-              })
-                .then((r) => r.json().then((d) => ({ status: r.status, body: d })))
-                .then(({ status, body }) => {
-                  if (status >= 400) {
-                    groupError.textContent = ' ' + (body.error || 'Failed to delete group');
-                    return;
-                  }
-                  loadGroups();
-                })
-                .catch(() => {
-                  groupError.textContent = ' Failed to delete group.';
-                });
-            });
-          });
-        })
-        .catch(() => {
-          groupsList.innerHTML = '<li class="muted">Failed to load groups.</li>';
-        });
-    }
-
-    groupForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      groupError.textContent = '';
-      const name = groupNameInput.value.trim();
-      if (!name) {
-        groupError.textContent = ' Name is required.';
-        return;
-      }
-      fetch('/api/admin/groups', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-        body: JSON.stringify({ name }),
-      })
-        .then((r) => r.json().then((d) => ({ status: r.status, body: d })))
-        .then(({ status, body }) => {
-          if (status >= 400) {
-            groupError.textContent = ' ' + (body.error || 'Failed to create group');
-            return;
-          }
-          groupNameInput.value = '';
-          loadGroups();
-        })
-        .catch(() => {
-          groupError.textContent = ' Failed to create group.';
-        });
-    });
-
-    userForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      userError.textContent = '';
-      const username = userUsernameInput.value.trim();
-      const password = userPasswordInput.value;
-      const isAdmin = !!userAdminInput.checked;
-      if (!username || !password) {
-        userError.textContent = ' Username and password are required.';
-        return;
-      }
-      fetch('/api/admin/users', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-        body: JSON.stringify({ username, password, isAdmin }),
-      })
-        .then((r) => r.json().then((d) => ({ status: r.status, body: d })))
-        .then(({ status, body }) => {
-          if (status >= 400) {
-            userError.textContent = ' ' + (body.error || 'Failed to create user');
-            return;
-          }
-          userUsernameInput.value = '';
-          userPasswordInput.value = '';
-          userAdminInput.checked = false;
-          loadUsers();
-        })
-        .catch(() => {
-          userError.textContent = ' Failed to create user.';
-        });
-    });
-
-    fetch('/api/me', { credentials: 'include' })
-      .then((r) => r.json())
-      .then((d) => {
-        csrfToken = (d && d.csrfToken) || '';
-        loadUsers();
-        loadGroups();
-      })
-      .catch(() => {
-        tbody.innerHTML = '<tr><td colspan="4" class="muted">Failed to load.</td></tr>';
-      });
-  </script>
+  <script src="/js/common.js"></script>
+  <script src="/js/admin.js"></script>
 </body>
 </html>
-

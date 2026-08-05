@@ -5,21 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>API tokens — Gravity</title>
   <link rel="stylesheet" href="/styles.css" />
-  <style>
-    .tokens-list { text-align: left; max-width: 36rem; margin: 1rem auto; }
-    .tokens-list table { width: 100%; border-collapse: collapse; }
-    .tokens-list th, .tokens-list td { padding: 0.5rem; border-bottom: 1px solid #333; }
-    .tokens-list .prefix { font-family: monospace; color: #93c5fd; }
-    .tokens-list .revoke { background: transparent; color: #fca5a5; border: 1px solid #fca5a5; padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 4px; font-size: 0.85rem; }
-    .tokens-list .revoke:hover { background: #fca5a5; color: #1a1a2e; }
-    .create-form { max-width: 20rem; margin: 1.5rem auto; text-align: left; }
-    .create-form input { width: 100%; padding: 0.5rem; background: #2d2d44; border: 1px solid #444; color: #eee; border-radius: 4px; }
-    .create-form button { margin-top: 0.5rem; padding: 0.5rem 1rem; background: #3b82f6; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
-    .create-form button:hover { background: #2563eb; }
-    .new-token { background: #1e3a2f; border: 1px solid #6ee7b7; padding: 1rem; border-radius: 8px; margin: 1rem auto; max-width: 36rem; word-break: break-all; }
-    .new-token strong { color: #6ee7b7; }
-    .empty { color: #666; }
-  </style>
 </head>
 <body>
   <main>
@@ -32,7 +17,7 @@
       <input id="name" type="text" placeholder="e.g. iSpindel device" />
       <button type="button" id="create">Create token</button>
     </div>
-    <div id="new-token-box" class="new-token" style="display: none;"></div>
+    <div id="new-token-box" class="new-token is-hidden"></div>
 
     <div class="tokens-list">
       <table>
@@ -45,94 +30,7 @@
       </table>
     </div>
   </main>
-  <script>
-    const tbody = document.getElementById('tokens-tbody');
-    const nameInput = document.getElementById('name');
-    const createBtn = document.getElementById('create');
-    const newTokenBox = document.getElementById('new-token-box');
-    let csrfToken = '';
-
-    function formatDate(d) {
-      if (!d) return '—';
-      const dt = new Date(d);
-      return dt.toLocaleString();
-    }
-
-    function loadTokens() {
-      fetch('/api/tokens', { credentials: 'include' })
-        .then((r) => { if (r.status === 401) { window.location.href = '/login'; return null; } if (r.status === 403) { window.location.href = '/'; return null; } return r.json(); })
-        .then((data) => {
-          if (!data) return;
-          if (!data.tokens || data.tokens.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" class="empty">No tokens yet. Create one above.</td></tr>';
-            return;
-          }
-          tbody.innerHTML = data.tokens.map((t) => `
-            <tr>
-              <td>${escapeHtml(t.name)}</td>
-              <td><span class="prefix">${escapeHtml(t.token_prefix)}…</span></td>
-              <td>${formatDate(t.last_used_at)}</td>
-              <td><button class="revoke" data-id="${t.id}">Revoke</button></td>
-            </tr>
-          `).join('');
-          tbody.querySelectorAll('.revoke').forEach((btn) => {
-            btn.addEventListener('click', () => revoke(parseInt(btn.dataset.id, 10)));
-          });
-        });
-    }
-
-    function escapeHtml(s) {
-      if (s == null) return '';
-      const div = document.createElement('div');
-      div.textContent = String(s);
-      return div.innerHTML;
-    }
-
-    function revoke(id) {
-      if (!confirm('Revoke this token? It will stop working immediately.')) return;
-      fetch(`/api/tokens/${id}`, {
-        method: 'DELETE',
-        credentials: 'include',
-        headers: { 'X-CSRF-Token': csrfToken },
-      })
-        .then((r) => { if (r.ok) loadTokens(); });
-    }
-
-    createBtn.addEventListener('click', () => {
-      const name = nameInput.value.trim();
-      if (!name) return;
-      createBtn.disabled = true;
-      fetch('/api/tokens', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-        body: JSON.stringify({ name }),
-      })
-        .then((r) => r.json())
-        .then((data) => {
-          createBtn.disabled = false;
-          nameInput.value = '';
-          if (data.token) {
-            newTokenBox.style.display = 'block';
-            newTokenBox.innerHTML = '<strong>Copy this token now;</strong> it won’t be shown again.<br><code>' + escapeHtml(data.token) + '</code>';
-            loadTokens();
-          } else if (data.error) {
-            newTokenBox.style.display = 'block';
-            newTokenBox.innerHTML = '<span style="color:#fca5a5">' + escapeHtml(data.error) + '</span>';
-          }
-        })
-        .catch(() => { createBtn.disabled = false; });
-    });
-
-    fetch('/api/me', { credentials: 'include' })
-      .then((r) => r.json())
-      .then((d) => {
-        csrfToken = (d && d.csrfToken) || '';
-        loadTokens();
-      })
-      .catch(() => {
-        tbody.innerHTML = '<tr><td colspan="4" class="empty">Failed to load.</td></tr>';
-      });
-  </script>
+  <script src="/js/common.js"></script>
+  <script src="/js/tokens.js"></script>
 </body>
 </html>

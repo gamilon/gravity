@@ -17,31 +17,59 @@ async function loadUserWithGroups(userId) {
   };
 }
 
-function requireAuth(req, res, next) {
-  if (!req.session?.userId) {
-    if (req.xhr || req.headers.accept?.includes('application/json')) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-    return res.redirect('/login');
+function wantsJson(req) {
+  return (
+    req.path.startsWith('/api/') ||
+    req.xhr ||
+    (req.headers.accept || '').includes('application/json')
+  );
+}
+
+function unauthorized(req, res) {
+  if (wantsJson(req)) {
+    return res.status(401).json({ error: 'Unauthorized' });
   }
-  next();
+  return res.redirect('/login');
+}
+
+function forbidden(req, res) {
+  if (wantsJson(req)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  return res.status(403).send('Forbidden');
+}
+
+function destroySession(req) {
+  return new Promise((resolve) => {
+    if (!req.session) return resolve();
+    req.session.destroy(() => resolve());
+  });
+}
+
+async function requireAuth(req, res, next) {
+  if (!req.session?.userId) {
+    return unauthorized(req, res);
+  }
+  try {
+    const user = await loadUserWithGroups(req.session.userId);
+    if (!user || user.disabled) {
+      await destroySession(req);
+      return unauthorized(req, res);
+    }
+    req.user = user;
+    next();
+  } catch (err) {
+    next(err);
+  }
 }
 
 async function requireAdmin(req, res, next) {
-  if (!req.session?.userId) {
-    if (req.xhr || req.headers.accept?.includes('application/json')) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-    return res.redirect('/login');
+  if (!req.user) {
+    return requireAuth(req, res, () => requireAdmin(req, res, next));
   }
-  const user = await loadUserWithGroups(req.session.userId);
-  if (!user || !user.groups.includes('admin')) {
-    if (req.xhr || req.headers.accept?.includes('application/json')) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-    return res.status(403).send('Forbidden');
+  if (!req.user.groups.includes('admin')) {
+    return forbidden(req, res);
   }
-  req.user = user;
   next();
 }
 
@@ -61,8 +89,11 @@ async function requireApiToken(req, res, next) {
   if (!row) {
     return res.status(401).json({ error: 'Invalid API token' });
   }
-  req.apiToken = row;
   const user = await loadUserWithGroups(row.user_id);
+  if (!user || user.disabled) {
+    return res.status(401).json({ error: 'Invalid API token' });
+  }
+  req.apiToken = row;
   req.user = user;
   next();
 }
